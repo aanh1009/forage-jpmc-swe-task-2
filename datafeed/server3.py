@@ -1,39 +1,14 @@
-################################################################################
-#
-#  Permission is hereby granted, free of charge, to any person obtaining a
-#  copy of this software and associated documentation files (the "Software"),
-#  to deal in the Software without restriction, including without limitation
-#  the rights to use, copy, modify, merge, publish, distribute, sublicense,
-#  and/or sell copies of the Software, and to permit persons to whom the
-#  Software is furnished to do so, subject to the following conditions:
-#
-#  The above copyright notice and this permission notice shall be included in
-#  all copies or substantial portions of the Software.
-#
-#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-#  OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-#  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-#  DEALINGS IN THE SOFTWARE.
-
-# from itertools import izip
-from random import normalvariate, random
-from datetime import timedelta, datetime
-
 import csv
 import dateutil.parser
 import os.path
-
 import operator
 import json
 import re
 import threading
-
-# from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
 import http.server
 from socketserver import ThreadingMixIn
+from random import normalvariate, random
+from datetime import timedelta, datetime
 
 ################################################################################
 #
@@ -150,7 +125,7 @@ def order_book(orders, book, stock_name):
 
 def generate_csv():
     """ Generate a CSV of order history. """
-    with open('test.csv', 'wb') as f:
+    with open('test.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         for t, stock, side, order, size in orders(market()):
             if t > MARKET_OPEN + SIM_LENGTH:
@@ -235,12 +210,13 @@ def run(routes, host='0.0.0.0', port=8080):
     thread.daemon = True
     thread.start()
     print('HTTP server started on port 8080')
-    while True:
-        from time import sleep
-        sleep(1)
+    try:
+        while True:
+            from time import sleep
+            sleep(1)
+    except KeyboardInterrupt:
+        print("Server is shutting down")
     server.shutdown()
-    server.start()
-    server.waitForThread()
 
 
 ################################################################################
@@ -262,7 +238,12 @@ class App(object):
         self._data_1 = order_book(read_csv(), self._book_1, 'ABC')
         self._data_2 = order_book(read_csv(), self._book_2, 'DEF')
         self._rt_start = datetime.now()
-        self._sim_start, _, _ = next(self._data_1)
+
+        try:
+            self._sim_start, _, _ = next(self._data_1)
+        except StopIteration:
+            print("Error: No data available in _data_1")
+            self._sim_start = datetime.now()  # Assign a default value
         self.read_10_first_lines()
 
     @property
@@ -284,9 +265,12 @@ class App(object):
                 yield t, bids, asks
 
     def read_10_first_lines(self):
-        for _ in iter(range(10)):
-            next(self._data_1)
-            next(self._data_2)
+        try:
+            for _ in iter(range(10)):
+                next(self._data_1)
+                next(self._data_2)
+        except StopIteration:
+            print("Error: Not enough data to read 10 lines")
 
     @route('/query')
     def handle_query(self, x):
@@ -296,11 +280,10 @@ class App(object):
         try:
             t1, bids1, asks1 = next(self._current_book_1)
             t2, bids2, asks2 = next(self._current_book_2)
-        except Exception as e:
-            print("error getting stocks...reinitalizing app")
-            self.__init__()
-            t1, bids1, asks1 = next(self._current_book_1)
-            t2, bids2, asks2 = next(self._current_book_2)
+        except StopIteration:
+            print("Error: No more data available in _current_book_1 or _current_book_2")
+            return []
+
         t = t1 if t1 > t2 else t2
         print('Query received @ t%s' % t)
         return [{
